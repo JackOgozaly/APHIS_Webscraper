@@ -53,8 +53,8 @@ from pptx.util import Pt
 
 #Step 1: Identify some words that you think will be associated with 
 #        websites that will need to be changed. 
-keywords = ['PPQ 588', 'ePermit']
-
+keywords = ['PPQ 588', 'ePermit', 'PPQ 526', 'PPQ 525', 'PPQ 586', 'PPQ 587', 'PPQ 621', 
+            'PPQ 585', 'PPQ 546', 'labels']
 
 #Step 2: Identify some words that if present 100% mean the website needs to be 
 #        changed. 
