@@ -1,39 +1,58 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Apr  7 13:12:12 2022
+Created on Sun Apr 17 15:52:17 2022
 
-@author: jack.ogozaly
+@author: jackogozaly
 """
 
-#Packages Used
+#Hello, if you've never used python before this should be fairly simple
+
+#Firstly, make sure you have python installed. I reccomend downloading anaconda
+#That way you'll have an enviroment to see the script in and won't have to bother
+#As much with setting up packages. Download anaconda at the link below:
+#https://docs.anaconda.com/anaconda/install/index.html
+
+
+#This script relies on some packages, anaconda should come installed with most
+#of these, but you'll have to download the following packages. Paste them in one 
+#line at a time into the terminal and without the #
+
+#pip install selenium
+#pip install webdriver-manager
+#pip install python-pptx
+
+
+#This script utilizes the following packages:
+#Used to create a browser window to navigate around in
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
-import time
+#Used for reading the website text
 from bs4 import BeautifulSoup
-import itertools
 import requests
+#Used for general data manipulation and convenience
+import time
+import itertools
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import re
-
-
-#pip install python-pptx
+from datetime import datetime
+#Used to export the final result as a powerpoint deck
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.util import Pt
+
+
 
 
 # Welcome to Mr. Website Roboto, 
 
 #Step 1: Identify some words that you think will be associated with 
 #        websites that will need to be changed. 
-keywords = ['PPQ 588', 'ePermit', 'PPQ 526', 'PPQ 525', 'PPQ 586', 'PPQ 587', 'PPQ 621', 
-            'PPQ 585', 'PPQ 546', 'labels']
-
 keywords = ['PPQ 588', 'ePermit']
 
 
@@ -42,7 +61,13 @@ keywords = ['PPQ 588', 'ePermit']
 keywords2 = ['epermit', 'epermits']
 
 
+#_____________________________________________________________________________
+
+
 #Step 3: Run the script and let Mr. Website Roboto find what you're looking for!
+
+#_____________________________________________________________________________
+
 print("Beep boop, let me boot up google chrome and get to scraping!")
 #Download our chrome driver
 driver = webdriver.Chrome(service= Service(ChromeDriverManager().install()))
@@ -81,6 +106,8 @@ for i in range(len(keywords)):
 #Exit out of our driver
 driver.quit()
 
+
+
 #Combine all the lists together
 merged = list(itertools.chain(*links_list))
 merged = [item for item in merged if item[0].startswith('https')]
@@ -101,10 +128,12 @@ links_to_search = list(set(links_to_search))
 for i in range(len(keywords2)):
     keywords2[i] = keywords2[i].lower()
 
-#%%
-
 #Create empty list for us to put the final links into
 links_to_fix = []
+offending_word = []
+parent_elem = []
+links = []
+why_it_needs_revision = []
 
 print("Beep boop, now to search the links for your keywords")
 #Go to every website we previously got, and search for the keywords
@@ -112,213 +141,193 @@ for i in tqdm(range(len(links_to_search))):
   URL= links_to_search[i]
   page = requests.get(URL)
   soup = BeautifulSoup(page.content, 'html.parser')
+  
+
+  for link in soup.findAll('a'):
+     links.append(link.get('href'))
+
+  
+  #Locate where the keywords are being said
   text = soup.get_text().lower().strip()
-  if any(word in text for word in keywords2):
-      links_to_fix.append(URL)
-      
+  pattern = re.compile(r'\b(?:%s)\b' % '|'.join(keywords2), re.IGNORECASE)
+  searched_text = soup.find_all(text=pattern)
+  
+  
+  if searched_text is not None: 
+      for i in range(len(searched_text)):
+          links_to_fix.append(URL)
+          offending_word.append(searched_text[i])
+          parent_elem.append(searched_text[i].parent.text)
+          try:              
+              if searched_text[0] == "Permits (ePermits and eFile)" and len(searched_text) == 1:
+                  why_it_needs_revision.append("Banner says ePermit")
+              else: 
+                  why_it_needs_revision.append("Your keywords are mentioned somewhere on this page.")
+          except: 
+              why_it_needs_revision.append("I don't think ePermit is here, but you should verify")
 
-print("Now I'm going to look through the links for any offending URLs")
-#Go through the links and see if they link to other offending sites
-df_list = []
-for i in tqdm(range(len(links_to_search))):
-    URL= links_to_search[i]
-    page = requests.get(URL)
-    soup = BeautifulSoup(page.content, 'html.parser')
-    links = []
-    for link in soup.findAll('a'):
-       links.append(link.get('href'))
-       
-    links = list(filter(None, links))
+
+
+#Deduplicate the links and filter out links we don't want to check for epermits
+links = list(set(links))
+links = pd.Series(links)
+links = links[links.notnull()]
+links = links[~links.str.contains('|'.join(['collapse', '#', 'mailto', '.pdf', '.csv',
+                                         '.xlsx']))]
+
+links = np.where(links.str.startswith('https'), 
+                                links, 
+                                'https://www.aphis.usda.gov/' + links)
+links = [x for x in links if pd.isnull(x) == False]
+links = list(links)
+links = list(filter(lambda x: x.startswith("https://www.aphis.usda"), links))
+links = [x for x in links if x not in links_to_search]
+
+     
+print("beep boop, oh man this will take a while. Let me look through all the USDA links I could find.")
+for i in tqdm(range(len(links))):
+  URL= links[i]
+  page = requests.get(URL)
+  soup = BeautifulSoup(page.content, 'html.parser')
     
-    #Search the list of links to see if any of them mention epermits
-    s = pd.Series(links, dtype = 'object')
-    s = s.astype(str)
-    s = s.str.lower()
-    s = s[s.str.contains('|'.join(keywords2))]
-    if s.empty:
-        continue
-    else: 
-        df = pd.DataFrame({'Offending_Link' : s, 'Parent_URL': URL})
-        df = df.drop_duplicates()
-        df_list.append(df)
+  #Locate where the keywords are being said
+  text = soup.get_text().lower().strip()
+  pattern = re.compile(r'\b(?:%s)\b' % '|'.join(keywords2), re.IGNORECASE)
+  searched_text = soup.find_all(text=pattern)
+  
+  
+  if searched_text is not None: 
+      for i in range(len(searched_text)):
+          links_to_fix.append(URL)
+          offending_word.append(searched_text[i])
+          parent_elem.append(searched_text[i].parent.text)
+          
+          try:              
+              if searched_text[0] == "Permits (ePermits and eFile)" and len(searched_text) == 1:
+                  why_it_needs_revision.append("Banner says ePermit")
+              else: 
+                  why_it_needs_revision.append("Your keywords are mentioned somewhere on this page.")
+          except: 
+              why_it_needs_revision.append("I don't think ePermit is here, but you should verify")
 
-df = pd.concat(df_list)
-df['Offending_Link'] = np.where(df['Offending_Link'].str.startswith('https'), 
-                                df['Offending_Link'], 
-                                'https://www.aphis.usda.gov/' + df['Offending_Link'])
+
+df2 = pd.DataFrame({'URL': links_to_fix,
+                    'Offending_Text': offending_word,
+                    'Parent_Element': parent_elem,
+                    'Why_it_needs_revision': why_it_needs_revision})
 
 
-#Find all links to search through
-links_to_fix = links_to_fix + list(df['Offending_Link'].unique())
-links_to_fix = list(set(links_to_fix))
+#Have it so we're only showing the banner change once
+banner_rows = df2[df2['Why_it_needs_revision'] == 'Banner says ePermit']
+non_banner_rows = df2[df2['Why_it_needs_revision'] != 'Banner says ePermit']
 
-#%%
-
-print("Now to see where exactly it's saying your keywords")
-#Go through the links that mention epermits and see if it's because of the banner or some other reason
-why_it_needs_revision = []
-for i in tqdm(range(len(links_to_fix))):
-    URL= links_to_fix[i]
-    page = requests.get(URL)
-    soup = BeautifulSoup(page.content, 'html.parser')
-    text = soup.get_text().lower().strip()
-        
-    #Find the offending pattern
-    pattern = re.compile(r'\b(?:%s)\b' % '|'.join(keywords2), re.IGNORECASE)
+if banner_rows.shape[0] > 0: 
+    banner_rows = banner_rows.iloc[0]
+    all_links_to_change = pd.concat([banner_rows,non_banner_rows])
     
-    if soup.find(text=pattern) is not None:
-        dictionary = soup.find(text=pattern).__dict__
-        
-        if str(dictionary['parent']) == '''<a href="/aphis/resources/permits" role="menuitem" tabindex="-1">Permits (ePermits and eFile)</a>''':
-            why_it_needs_revision.append("Banner")
-        else:
-            why_it_needs_revision.append("TBD")
-    else: 
-        why_it_needs_revision.append("Unsure")
+else:
+    all_links_to_change = non_banner_rows
 
-
-#%%
+all_links_to_change = all_links_to_change.drop_duplicates()
 
 
 
-
-print("Now to see where exactly it's saying your keywords")
-#Go through the links that mention epermits and see if it's because of the banner or some other reason
-why_it_needs_revision = []
-for i in tqdm(range(len(links_to_fix))):
-    URL= links_to_fix[i]
-    page = requests.get(URL)
-    soup = BeautifulSoup(page.content, 'html.parser')
-    text = soup.get_text().lower().strip()
-        
-    #Find the offending pattern
-    pattern = re.compile(r'\b(?:%s)\b' % '|'.join(keywords2), re.IGNORECASE)
-    
-    try:
-        searched_text = soup.find_all(text=pattern)
-        
-        if searched_text[0] == "Permits (ePermits and eFile)" and len(searched_text) == 1:
-            why_it_needs_revision.append("Banner")
-        else: 
-            why_it_needs_revision.append("TBD")
-    except: 
-        why_it_needs_revision.append("Unsure")
-        
-        
+#Function we will use to highlight the text we have
+def highlight(element, effect_time, color, border):
+    """Highlights (blinks) a Selenium Webdriver element"""
+    driver = element._parent
+    def apply_style(s):
+        driver.execute_script("arguments[0].setAttribute('style', arguments[1]);",
+                              element, s)
+    apply_style("border: {0}px solid {1};".format(border, color))
+    time.sleep(effect_time)
 
 
-all_links_to_change = pd.DataFrame({'Offending_Link': links_to_fix,
-                                    'What_To_Fix': why_it_needs_revision})
+#Organize the final list of all the URLs we need to change
+urls_to_screenshot = list(all_links_to_change['URL'].unique())
+urls_to_screenshot = [x for x in urls_to_screenshot if pd.isnull(x) == False]
 
+#_________________________Presentation Making Section__________________________
 
-
-
-
-
-#%%
-
-URL= 'https://www.aphis.usda.gov//aphis/resources/sa_epermits/eauth-epermits'
-page = requests.get(URL)
-soup = BeautifulSoup(page.content, 'html.parser')
-text = soup.get_text().lower().strip()
-    
-#Find the offending pattern
-pattern = re.compile(r'\b(?:%s)\b' % '|'.join(keywords2), re.IGNORECASE)
-dictionary = soup.find_all(text=pattern).__dict__
-
-
-#print(soup.find_all(text=pattern))
-
-
-img = soup.find_all(text=pattern)
-
-for imgs in img:
-    print(imgs)
-
-
-if img[0] == "Permits (ePermits and eFile)" and len(img) == 1:
-    print("hello")
-else: 
-    print("nah")
-
-
-
-#%%
-
-print(img.parent)
-
-#%%
-print(str(dictionary['parent']))
-
-
-
-#%%
-
-all_links_to_change = pd.DataFrame({'Offending_Link': links_to_fix,
-                                    'What_To_Fix': why_it_needs_revision})
-
-
-
-
-#%%
-
-
-all_links_to_change = pd.concat([all_links_to_change, df])
-
-
-
+#Create the first slide of our presentation with all the necessary text
 X = Presentation()
 Layout = X.slide_layouts[0] 
 first_slide = X.slides.add_slide(Layout)
 first_slide.shapes.title.text = "Website Text Changes"
 first_slide.placeholders[1].text = "Created by Mr. Website Roboto"
 
-driver = webdriver.Chrome(service= Service(ChromeDriverManager().install()))
+textbox = first_slide.shapes.add_textbox(Inches(2), Inches(5.21),Inches(6), Inches(2)) 
+textframe = textbox.text_frame
+textframe.word_wrap = True
+paragraph = textframe.add_paragraph()
+paragraph.text = f"On {datetime.today().strftime('%Y-%m-%d')}, I searched the APHIS website for all links related\
+ to {str(keywords)[1:-1]}. In total, I examined {len(links) + len(links_to_search)} websites for your keywords and\
+ I found {len(urls_to_screenshot)} websites that need to be altered. "
+paragraph.font.size = Pt(12.5)
 
-for i in range(20): 
-    
-    driver.get(links_to_fix[i])
+
+#Boot up google chrome to start taking screenshots
+driver = webdriver.Chrome(service= Service(ChromeDriverManager().install()))
+driver.set_window_size(1536, 1536)
+
+for i in range(len(urls_to_screenshot)): 
+    URL = urls_to_screenshot[i]
+    driver.get(URL)
+    time.sleep(2)
     screenshot = driver.save_screenshot('my_screenshot.png')
+    
+    df_subset = all_links_to_change[all_links_to_change['URL'] == URL]
+    df_subset = df_subset.reset_index(drop=True)
+    for i in range(df_subset.shape[0]):
+        try: 
+            open_window_elem = driver.find_elements_by_xpath(f"//*[contains(text(), '{df_subset['Offending_Text'][i]}')]")
+            for i in range(len(open_window_elem)): 
+                highlight(open_window_elem[i], 3, "orange", 5)
+        except: 
+            continue
+    
+    time.sleep(.5)
+    
+    screenshot2 = driver.save_screenshot('my_screenshot2.png')
     
     Second_Layout = X.slide_layouts[6]
     second_slide = X.slides.add_slide(Second_Layout)
     
     #Add in URL text
-    textbox = second_slide.shapes.add_textbox(Inches(10), Inches(1),Inches(3), Inches(1)) 
+    textbox = second_slide.shapes.add_textbox(Inches(10), Inches(0),Inches(2.5), Inches(1)) 
     textframe = textbox.text_frame
     textframe.word_wrap = True
     paragraph = textframe.add_paragraph()
-    paragraph.text = 'URL: ' + links_to_fix[i]
+    paragraph.text = 'URL: ' + URL
+    paragraph.font.size = Pt(12.5)
+    
+    textbox = second_slide.shapes.add_textbox(Inches(10), Inches(3.25),Inches(2.5), Inches(1)) 
+    textframe = textbox.text_frame
+    textframe.word_wrap = True
+    paragraph = textframe.add_paragraph()
+    paragraph.text = f'Why I flagged this: I counted {df_subset.shape[0]} elements that need to be changed here.'
+    paragraph.font.size = Pt(12.5)
+    
+    textbox = second_slide.shapes.add_textbox(Inches(-6.1), Inches(0),Inches(2.5), Inches(1)) 
+    textframe = textbox.text_frame
+    textframe.word_wrap = True
+    paragraph = textframe.add_paragraph()
+    paragraph.text = 'Current Version'
     paragraph.font.size = Pt(12.5)
     
     
-    pic = second_slide.shapes.add_picture('my_screenshot.png', left= Inches(2), top= Inches(0),
-                                          width=Inches(6), height=Inches(7.8))
-
-
-
-X.save("First_presentation.pptx")
-
-
-#%%
-
-import re
-
-for i in range(60):
-    URL= links_to_fix[i]
-    print(i)
-    page = requests.get(URL)
-    soup = BeautifulSoup(page.content, 'html.parser')
-    text = soup.get_text().lower().strip()
+    pic = second_slide.shapes.add_picture('my_screenshot.png', left= Inches(-6.1), top= Inches(.75),
+                                          width=Inches(6), height=Inches(6))
     
-    
-    #pattern = re.compile(r'epermit',  re.IGNORECASE)
-    
-    pattern = re.compile(r'\b(?:%s)\b' % '|'.join(keywords2), re.IGNORECASE)
-    
-    
-    dictionary = soup.find(text=pattern).__dict__
-    print(dictionary['parent'])
+    pic2 = second_slide.shapes.add_picture('my_screenshot2.png', left= Inches(1.65), top= Inches(0),
+                                          width=Inches(7.5), height=Inches(7.5))
 
 
-#%%
+
+X.save("APHIS_presentation.pptx")
+
+
+driver.quit()
+
+
+print("I'm all done!")
